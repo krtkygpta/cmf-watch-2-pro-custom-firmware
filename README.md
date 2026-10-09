@@ -1,97 +1,85 @@
-# CMF Watch Pro 2 - Custom Firmware & Web Flasher
+# CMF Watch Pro 2 - Custom Firmware Flashing Guide
 
-This repository provides tools, repacked firmware, and flashing instructions for the **CMF Watch Pro 2 (by Nothing)** running on the **Actions Technology ATS3089C SoC** (`jx402_01_3089c`).
-
----
-
-## ⚠️ Important Disclaimer & Warnings
-
-* Modifying and flashing custom firmware to an embedded microcontroller carries an inherent risk of **bricking the device**.
-* The CMF Watch Pro 2 does **not** have an external hardware recovery button (like DFU/fastboot). If an invalid image is flashed and the Bluetooth radio fails to boot, recovery requires opening the watch case to connect an SWD hardware debugger (ST-Link/J-Link).
-* Proceed at your own risk. Only flash devices you are prepared to troubleshoot or recover.
+This repository contains the tools, architecture specifications, and instructions for flashing custom/repacked firmware onto the **CMF Watch Pro 2** (Actions ATS3089C SoC / board `jx402_01_3089c`).
 
 ---
 
-## 📦 What Is In This Repository
-
-1. **`repack_firmware.py`**:
-   Full unpacker, SDFS editor, and AOTA repacker script. It extracts partitions, swaps watchface assets, compresses data into 32 KB LZMA/XZ blocks with official 16-byte headers, updates XML descriptors, and recalculates CRC-32 checksums.
-2. **`web_flasher.html`**:
-   A Chromium Web Bluetooth interface to connect, inspect GATT services, and communicate with the watch directly from a PC without installing Android ADB or vendor software.
-3. **Firmware Architecture Documentation**:
-   Technical documentation on the AOTA container format, SDFS filesystem, and Bluetooth LE protocol.
+## ⚠️ Warning & Brick Risk
+The CMF Watch Pro 2 does **not** have an external recovery mode or USB port. If an invalid or corrupted firmware image is written to flash and the Bluetooth radio fails to boot, recovery requires opening the watch chassis and soldering directly to the internal SWD pins (SWDIO/SWCLK) using an ST-Link/J-Link programmer.
 
 ---
 
-## ⚡ How to Flash the Watch Using a PC
+## ⚡ How to Flash the Firmware Image (`.bin`)
 
-There are two primary ways to flash or upload custom watchfaces from your computer:
-
-### Option 1: Direct Web Bluetooth (Fastest & Safest)
-The CMF Watch Pro 2 supports direct Web Bluetooth connections from Chromium browsers (Google Chrome, Microsoft Edge, Brave, Opera) on Windows, macOS, and Linux.
-
-1. **Disconnect from Phone**:
-   * Turn **OFF** Bluetooth on your smartphone (or force-close the Nothing X / CMF Watch app).
-   * *Reason:* The watch can only maintain one active Bluetooth connection. Disconnecting from your phone allows the watch to advertise to your PC.
-2. **Open the Web Flasher**:
-   * You can open the included `web_flasher.html` in Chrome/Edge, or use the online portal at:
-     👉 **[https://fmc.freethinkel.dev](https://fmc.freethinkel.dev)**
-3. **Connect to the Watch**:
-   * Click **Connect**.
-   * A browser pop-up will appear scanning for Bluetooth devices.
-   * Select your **CMF Watch Pro 2** from the list and confirm pairing.
-   * *Note: The CMF Watch Pro 2 does NOT require an authentication key for pairing (unlike the Gen 1 watch).*
-4. **Flash the Watchface**:
-   * Select your `.bin` watchface file (e.g. `watchface.bin`).
-   * Click **Flash / Upload**.
-   * The file streams over BLE directly to the watch's storage slot in ~20–30 seconds.
+There are two verified methods to flash the generated `repacked_cmf_firmware.bin` (56 MB) to the watch:
 
 ---
 
-### Option 2: Full Firmware Flash via Local OTA Server
+### Method 1: The Local OTA Proxy Method (Most Reliable)
 
-If you want to flash the entire repacked 56 MB OS image (`repacked_cmf_firmware.bin`):
+This method uses your PC to serve the repacked `.bin` file while letting the official phone app (Nothing X / CMF Watch) execute the Bluetooth transfer using its built-in, vetted OTA transfer protocol.
 
-1. **Host the Firmware on your PC**:
-   In the repository folder, start a local Python HTTP server:
-   ```bash
-   python -m http.server 8080
+#### Step 1: Host the firmware on your PC
+In this directory on your computer, start a local HTTP server:
+```bash
+python -m http.server 8080
+```
+Find your PC's local IP address (e.g. `192.168.1.50`).
+Verify you can download the file by opening `http://192.168.1.50:8080/repacked_cmf_firmware.bin` in your browser.
+
+#### Step 2: Intercept the phone's update check
+1. On your phone (connected to the same Wi-Fi network as your PC), install an HTTP proxy tool such as **mitmproxy**, **Charles Proxy**, or **HTTP Canter / Reqable**.
+2. Configure your phone's Wi-Fi proxy settings to point to your PC's IP and proxy port.
+3. Open the **CMF Watch / Nothing X app** and navigate to:
+   `Device Settings -> Firmware Update -> Check for Updates`.
+4. In your proxy, intercept the JSON response from Nothing's OTA server.
+5. Replace the firmware download URL field in the response with:
+   ```json
+   "url": "http://<YOUR_PC_IP>:8080/repacked_cmf_firmware.bin"
    ```
-   Note your PC's local IP address (e.g. `192.168.1.50`).
+6. Update the `file_size` (56,045,040 bytes) and MD5 in the JSON response if required by the app.
 
-2. **Intercept the Official App Update**:
-   * Install **mitmproxy** or an HTTP proxy on the phone running the Nothing X / CMF Watch app.
-   * When checking for firmware updates, intercept the OTA JSON response and replace the download URL with:
-     `http://<YOUR_PC_IP>:8080/repacked_cmf_firmware.bin`
-   * The official app will download the repacked firmware from your PC and flash it over BLE using the official OTA bootloader protocol.
-
----
-
-## 🛠️ Technical Details & Firmware Layout
-
-* **Base Board**: `jx402_01_3089c`
-* **SoC**: Actions Technology ATS3089C (ARM Cortex-M33 @ 24MHz/96MHz + DSP)
-* **OS**: Zephyr RTOS (v3.x) with LVGL Graphics Framework
-* **Container Format**: Actions AOTA (Starts with `AOTA` magic at `0x0000`)
-* **Checksum Verification**: Standard IEEE 802.3 CRC-32 on all partitions and descriptors.
-
-### Partition Table:
-| Partition | Target Flash | Contents |
-| :--- | :--- | :--- |
-| `ota.xml` | Host Manifest | XML Partition and Checksum Descriptor |
-| `TEMP.bin` | Internal Flash | Zephyr RTOS Kernel (`app.bin`) & System Config (`sdfs.bin`) |
-| `res.bin` | Storage Flash | LVGL Icons, Vector Assets, and UI Themes |
-| `fonts.bin`| Storage Flash | System Fonts (`.font`) & Preloaded Watchfaces (`.wfc`) |
-| `res_e.bin`| Storage Flash | Extended Watchface Animation Bundles (`1.ajs` - `19.ajs`) |
-| `sdfs_k.bin`| Storage Flash | System Audio Ringtones (`.act`) & Regulatory Data |
-| `AGPS` | Co-processor | Assisted GPS Ephemeris & GNSS Engine |
+#### Step 3: Trigger the Flash
+1. Tap **Update Now** in the CMF app.
+2. The app downloads `repacked_cmf_firmware.bin` from your PC.
+3. The app puts the watch into OTA mode and uploads the 56 MB package over Bluetooth Low Energy.
+4. The watch screen will display the OTA progress circle and reboot once complete.
 
 ---
 
-## 📜 How to Generate Your Own Repacked Firmware
+### Method 2: Android Gadgetbridge FW/App Installer
 
-Run the included Python repacker script:
+Gadgetbridge supports the CMF Watch Pro 2 over Bluetooth LE without requiring a proprietary authentication key.
+
+1. **Install Gadgetbridge**:
+   Install the latest [Gadgetbridge APK](https://gadgetbridge.org/) (v0.94.0 or newer) on an Android phone.
+2. **Pair with Watch**:
+   * Turn OFF Bluetooth on other phones so the watch is in advertising mode.
+   * In Gadgetbridge, tap **+ (Add Device)** $\rightarrow$ select **CMF Watch Pro 2**.
+   * Pair directly (no auth key required).
+3. **Send the Firmware**:
+   * Copy `repacked_cmf_firmware.bin` to your phone's storage.
+   * In any Android file manager, locate `repacked_cmf_firmware.bin` and select **Open with...**.
+   * Choose **Gadgetbridge FW/App Installer**.
+   * Tap **Install** to initiate the Bluetooth transfer to the watch bootloader.
+
+---
+
+## 🛠️ Firmware Structure & Repacking Tools
+
+* **`repack_firmware.py`**:
+  Unpacks, modifies SDFS partitions, compresses into 32 KB LZMA blocks with the 16-byte `b"LZMA"` headers, updates XML partition descriptors, and calculates IEEE 802.3 CRC-32 checksums.
+* **Firmware Partition Map**:
+  * `0x00000400`: `ota.xml` (Partition manifest & uncompressed CRC32)
+  * `0x00000C00`: `TEMP.bin` (Nested AOTA container holding `app.bin` / Zephyr RTOS)
+  * `0x0013FE00`: `res.bin` (UI icons and themes)
+  * `0x0071D400`: `fonts.bin` (System typography & preloaded dials)
+  * `0x00E8BE00`: `res_e.bin` (Extended watchface animations `1.ajs` - `19.ajs`)
+  * `0x033F7600`: `sdfs_k.bin` (System ringtones `.act` and FCC certificates)
+  * `0x03448458`: `AGPS` (GNSS positioning binary)
+
+### Generating a New Binary:
 ```bash
 python repack_firmware.py
 ```
-This will automatically verify partition checksums, recompress into 32 KB blocks, and produce `repacked_cmf_firmware.bin`.
+Outputs `repacked_cmf_firmware.bin` ready for OTA flashing.
