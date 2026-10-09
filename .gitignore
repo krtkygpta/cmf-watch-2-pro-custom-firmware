@@ -1,0 +1,11 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+venv/
+*.log
+
+# Large binary files (download separately or build via script)
+*.bin

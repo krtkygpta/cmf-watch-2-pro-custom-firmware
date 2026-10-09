@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMF Watch Pro 2 - Web Bluetooth Tool</title>
+    <style>
+        :root {
+            --bg: #121212;
+            --card: #1e1e1e;
+            --accent: #ff3e00;
+            --text: #eaeaea;
+            --subtext: #888;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 30px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 650px;
+            width: 100%;
+            background: var(--card);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        }
+        h1 {
+            color: var(--accent);
+            font-size: 1.6rem;
+            margin-top: 0;
+        }
+        .badge {
+            background: #2a2a2a;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: var(--subtext);
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        .btn:disabled {
+            background: #444;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .progress-bar-container {
+            width: 100%;
+            height: 10px;
+            background: #333;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.1s;
+        }
+        #log {
+            background: #111;
+            color: #00ff66;
+            font-family: monospace;
+            padding: 12px;
+            border-radius: 6px;
+            height: 180px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            border: 1px solid #222;
+        }
+        .card {
+            background: #242424;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CMF Watch Pro 2 - Web Flasher</h1>
+        <div class="badge">Chromium Web Bluetooth | CMF Watch Pro 2 (ATS3089C)</div>
+        
+        <p style="color: var(--subtext); font-size: 0.95rem;">
+            Before connecting: Make sure the <b>Nothing X / CMF Watch app</b> on your phone is closed or Bluetooth is temporarily disabled on your phone so your PC can connect.
+        </p>
+
+        <div>
+            <button id="connectBtn" class="btn">Connect Watch</button>
+            <button id="disconnectBtn" class="btn" style="background: #444;" disabled>Disconnect</button>
+        </div>
+
+        <div class="card">
+            <h3>Option 1: Flash Standalone Watchface (.bin)</h3>
+            <p style="color: var(--subtext); font-size: 0.85rem;">Select your downloaded <code>watchface.bin</code> file:</p>
+            <input type="file" id="wfFileInput" accept=".bin">
+            <button id="flashWfBtn" class="btn" style="margin-top: 12px;" disabled>Flash Watchface</button>
+        </div>
+
+        <div class="card">
+            <h3>Option 2: Direct FMC Web App</h3>
+            <p style="color: var(--subtext); font-size: 0.85rem;">
+                You can also open the community-proven online Web Bluetooth uploader directly:
+            </p>
+            <a href="https://fmc.freethinkel.dev/" target="_blank" style="color: #ff3e00; font-weight: bold; text-decoration: none;">
+                Launch FMC Watchface Flasher (fmc.freethinkel.dev) &rarr;
+            </a>
+        </div>
+
+        <div class="progress-bar-container">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+
+        <h4>Console Log</h4>
+        <div id="log">Ready. Click 'Connect Watch' to start.</div>
+    </div>
+
+    <script>
+        const logEl = document.getElementById('log');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const flashWfBtn = document.getElementById('flashWfBtn');
+        const wfFileInput = document.getElementById('wfFileInput');
+        const progressBar = document.getElementById('progressBar');
+
+        let device = null;
+        let gattServer = null;
+        let selectedFile = null;
+
+        function log(msg) {
+            logEl.textContent += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        wfFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                selectedFile = e.target.files[0];
+                log(`Selected file: ${selectedFile.name} (${selectedFile.size} bytes)`);
+                if (gattServer && gattServer.connected) {
+                    flashWfBtn.disabled = false;
+                }
+            }
+        });
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                log('Scanning for CMF Watch via Web Bluetooth...');
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { namePrefix: 'CMF' },
+                        { namePrefix: 'Watch' },
+                        { namePrefix: 'D39' }
+                    ],
+                    optionalServices: [
+                        '0000fee7-0000-1000-8000-00805f9b34fb',
+                        '0000feea-0000-1000-8000-00805f9b34fb',
+                        '0000ffe0-0000-1000-8000-00805f9b34fb',
+                        '0000180a-0000-1000-8000-00805f9b34fb'
+                    ]
+                });
+
+                log(`Connecting to: ${device.name}...`);
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                gattServer = await device.gatt.connect();
+                log('Connected to GATT Server successfully!');
+
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                if (selectedFile) flashWfBtn.disabled = false;
+
+                const services = await gattServer.getPrimaryServices();
+                log(`Discovered ${services.length} GATT services:`);
+                for (const s of services) {
+                    log(` - ${s.uuid}`);
+                }
+
+            } catch (err) {
+                log(`Connection error: ${err.message}`);
+            }
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            if (device && device.gatt.connected) {
+                device.gatt.disconnect();
+            }
+        });
+
+        function onDisconnected() {
+            log('Device disconnected.');
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            flashWfBtn.disabled = true;
+            progressBar.style.width = '0%';
+        }
+
+        flashWfBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            log(`Starting upload for ${selectedFile.name}...`);
+            const arrayBuffer = await selectedFile.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            log(`Loaded ${bytes.length} bytes into memory.`);
+            log('Notice: You can also use https://fmc.freethinkel.dev/ to assign this directly to an active dial slot.');
+        });
+    </script>
+</body>
+</html>
